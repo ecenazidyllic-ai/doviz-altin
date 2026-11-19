@@ -4953,45 +4953,62 @@ if __name__ == '__main__':
  app.run(host="0.0.0.0", port=5000, debug=True)
  import re
 import requests
-from bs4 import BeautifulSoup
 
-_LAST_IZKO_CACHE = None
+_IZKO_GUNCEL_CACHE = None
 
-def _fetch_izko_prices_no_browser():
-    global _LAST_IZKO_CACHE
+def _fetch_izko_guncel_kur():
+    global _IZKO_GUNCEL_CACHE
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Referer": "https://www.izko.org.tr/"
     }
-    urls = [
-        "https://www.izko.org.tr/Home/GuncelKur",
-        "https://www.izko.org.tr/"
-    ]
-    for url in urls:
-        try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code != 200:
-                continue
-            soup = BeautifulSoup(resp.text, "html.parser")
+    try:
+        r = requests.get("https://www.izko.org.tr/guncel-kur", headers=headers, timeout=12)
+        if r.status_code == 200 and r.text:
             rows = []
-            for tr in soup.select("table tr"):
-                cols = [c.get_text(" ", strip=True) for c in tr.select("th, td") if c.get_text(strip=True)]
+            for tr in re.findall(r"<tr\b[^>]*>([\s\S]*?)</tr>", r.text, flags=re.I):
+                cols = [
+                    re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", td)).strip()
+                    for td in re.findall(r"<t[hd]\b[^>]*>([\s\S]*?)</t[hd]>", tr, flags=re.I)
+                ]
+                cols = [c for c in cols if c]
                 if len(cols) >= 2:
-                    rows.append(" | ".join(cols))
+                    rows.append(" — ".join(cols[:4]))
+            if not rows:
+                for blk in re.findall(r"<(?:div|li|p|span)\b[^>]*>([\s\S]*?)</(?:div|li|p|span)>", r.text, flags=re.I):
+                    txt = re.sub(r"<[^>]+>", " ", blk)
+                    txt = re.sub(r"\s+", " ", txt).strip()
+                    if re.search(r"\d+[.,]\d+", txt) and 6 <= len(txt) <= 100 and txt not in rows:
+                        rows.append(txt)
             if rows:
-                _LAST_IZKO_CACHE = rows[:12]
-                return _LAST_IZKO_CACHE
-        except Exception:
-            continue
-    return _LAST_IZKO_CACHE
+                _IZKO_GUNCEL_CACHE = rows[:12]
+                return _IZKO_GUNCEL_CACHE
+    except Exception:
+        pass
+    return _IZKO_GUNCEL_CACHE
 
 @app.after_request
-def _fix_izko_and_clean_playwright(response):
+def _replace_izko_with_guncel_kur(response):
     if response.content_type and "text/html" in response.content_type:
         html = response.get_data(as_text=True)
-        if "BrowserType.launch" in html or "ms-playwright" in html or "IZKO fiyatları alınamadı" in html:
+        if ("İZKO verileri alınamadı" in html or "IZKO fiyatları alınamadı" in html
+                or "BrowserType.launch" in html or "ms-playwright" in html):
+            rows = _fetch_izko_guncel_kur()
+            if rows:
+                box = (
+                    "<div style='margin-top:8px;padding:10px;border-radius:8px;background:#fff;border:1px solid #e5e7eb;color:#111;font-size:13px;'>"
+                    + "".join(f"<div style='padding:4px 0;border-bottom:1px solid #f3f4f6;'>{x}</div>" for x in rows)
+                    + "</div>"
+                )
+            else:
+                box = "<div style='margin-top:6px;font-size:12px;color:#6b7280;'>guncel-kur sayfasından Render üzerinden veri alınamadı.</div>"
+
             html = re.sub(
-                r"IZKO fiyatları alınamadı:[\s\S]*?(?:Playwright Team\s*‖?|chrome-headless-shell)",
-                "İzmir Kuyumcular Odası verileri tarayıcı olmadan güncelleniyor.",
+                r"(?:İZKO verileri alınamadı|IZKO fiyatları alınamadı)[\s\S]*?(?:Playwright Team\s*‖?|chrome-headless-shell|(?=<))",
+                box,
                 html
             )
             html = html.replace("Looks like Playwright was just installed or updated.", "")
@@ -4999,11 +5016,5 @@ def _fix_izko_and_clean_playwright(response):
             html = html.replace("playwright install", "")
             html = html.replace("<3 Playwright Team", "")
             html = re.sub(r"[║═╔╗╚╝]+", "", html)
-            prices = _fetch_izko_prices_no_browser()
-            if prices:
-                items_html = "<ul style='margin:8px 0;padding-left:18px;font-size:13px;'>" + "".join(
-                    f"<li>{p}</li>" for p in prices
-                ) + "</ul>"
-                html = html.replace("İzmir Kuyumcular Odası verileri tarayıcı olmadan güncelleniyor.", items_html)
             response.set_data(html.encode("utf-8"))
     return response
