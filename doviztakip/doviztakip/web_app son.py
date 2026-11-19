@@ -309,7 +309,7 @@ def izko_altin_cek():
                             );
                             return price && /\\d/.test(price.textContent);
                         }""",
-                        timeout=8000,
+                        timeout=25000,
                     )
                     rows = page.locator(".price-row").evaluate_all(
                         """elements => elements.map(row => ({
