@@ -4951,7 +4951,7 @@ if ('serviceWorker' in navigator) {{
     '''
 if __name__ == '__main__':
  app.run(host="0.0.0.0", port=5000, debug=True)
-    def _izko_format_tl(value):
+def _izko_format_tl(value):
     try:
         num = float(value)
         if not math.isfinite(num) or num <= 0:
