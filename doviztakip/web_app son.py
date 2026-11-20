@@ -4951,3 +4951,103 @@ if ('serviceWorker' in navigator) {{
     '''
 if __name__ == '__main__':
  app.run(host="0.0.0.0", port=5000, debug=True)
+    def _izko_format_tl(value):
+    try:
+        num = float(value)
+        if not math.isfinite(num) or num <= 0:
+            return None
+        return f"{round(num):,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return None
+
+
+def izko_altin_cek():
+    global _altin_cache, _altin_cache_time, _altin_cache_updated_at
+    global _altin_products_cache, _altin_alis_stale_cache
+    with _altin_cache_lock:
+        if _altin_cache and time.monotonic() - _altin_cache_time < 25:
+            return (
+                _altin_cache,
+                False,
+                _altin_cache_updated_at,
+                list(_altin_products_cache),
+                _altin_alis_stale_cache,
+            )
+        try:
+            import websocket
+
+            ws_url = "wss://veri.ozbag.com/socket.io/?status=true&EIO=4&transport=websocket"
+            ws = websocket.create_connection(
+                ws_url,
+                timeout=10,
+                header=[
+                    "Origin: https://www.izko.org.tr",
+                    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                ],
+            )
+            prices_payload = None
+            try:
+                ws.recv()
+                ws.send("40")
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline:
+                    msg = ws.recv()
+                    if msg == "2":
+                        ws.send("3")
+                    elif isinstance(msg, str) and msg.startswith('42["prices",'):
+                        parsed = json.loads(msg[2:])
+                        if len(parsed) >= 2 and isinstance(parsed[1], list):
+                            prices_payload = parsed[1]
+                            break
+            finally:
+                ws.close()
+
+            if not prices_payload:
+                raise ValueError("İZKO soketinden fiyat verisi gelmedi.")
+
+            by_symbol = {
+                str(item.get("Symbol", "")).lower(): item
+                for item in prices_payload
+                if isinstance(item, dict)
+            }
+            hedef_urunler = [
+                ("has", "Has Altın"),
+                ("yeniceyr", "Yeni Çeyrek"),
+                ("eskiceyrek", "Eski Çeyrek"),
+                ("yeniyarim", "Yeni Yarım"),
+                ("eskiyarim", "Eski Yarım"),
+                ("yenitam", "Yeni Tam"),
+                ("eskitam", "Eski Tam"),
+                ("yeniata", "Ata Altın"),
+                ("yenigramse", "Gremse"),
+                ("ata5li", "Ata Beşli"),
+            ]
+
+            liste = []
+            for sym, label in hedef_urunler:
+                item = by_symbol.get(sym)
+                if not item:
+                    continue
+                ask = _izko_format_tl(item.get("Ask"))
+                bid = _izko_format_tl(item.get("Bid"))
+                if ask:
+                    liste.append((label, ask, ask, (bid + " TL") if bid else "- TL"))
+
+            if not liste:
+                raise ValueError("İZKO fiyat listesi oluşturulamadı.")
+
+            products = [
+                {
+                    "name": name,
+                    "kkSatis": regular + " TL",
+                    "satis": discount + " TL",
+                    "alis": alis,
+                }
+                for name, regular, discount, alis in liste
+            ]
+
+            table = (
+                '<table class="gold-prices">'
+                '<thead><tr><th>Ürün</th>'
+                '<th><label class="gold-price-mode-wrap">'
+                '<select class="
