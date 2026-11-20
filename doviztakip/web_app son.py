@@ -5050,4 +5050,4 @@ def izko_altin_cek():
                 '<table class="gold-prices">'
                 '<thead><tr><th>Ürün</th>'
                 '<th><label class="gold-price-mode-wrap">'
-                '<select class="
+                '<select class="gold-price-mode" aria-label="Altın fiyat sütunu" '
